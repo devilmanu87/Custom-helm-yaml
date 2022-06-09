@@ -1,0 +1,244 @@
+# Alpha DEV values for kube-prometheus-stack.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+## Configuration for alertmanager
+## ref: https://prometheus.io/docs/alerting/alertmanager/
+##
+alertmanager:
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+    maxUnavailable: ""
+
+
+  ## Configuration for Alertmanager service
+  ##
+  service:
+    annotations:
+      service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+      service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "dev-lb-sn-001"
+    loadBalancerIP: "10.135.5.252"
+    type: LoadBalancer
+
+  ## Settings affecting alertmanagerSpec
+  ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/master/Documentation/api.md#alertmanagerspec
+  ##
+  alertmanagerSpec:
+    ## Image of Alertmanager
+    ##
+    image:
+      repository: itacr001.azurecr.io/alpha-telemetry/quay.io/prometheus/alertmanager
+      tag: v0.22.2
+      sha: ""
+    logFormat: json
+    podAntiAffinity: "hard"
+    podAntiAffinityTopologyKey: topology.kubernetes.io/zone
+
+    ## Assign custom affinity rules to the alertmanager instance
+    ## ref: https://kubernetes.io/docs/concepts/configuration/assign-pod-node/
+    ##
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - preference:
+            matchExpressions:
+            - key: agentpool
+              operator: In
+              values:
+              - generalpool
+          weight: 100
+    # tolerations: 
+    #   - key: "sku"
+    #     operator: "Equal"
+    #     value: "metricssvc"
+    #     effect: "NoSchedule"    
+
+grafana:
+  enabled: false
+
+## Configuration for kube-state-metrics subchart
+##
+kube-state-metrics:
+  image:
+    repository: itacr001.azurecr.io/alpha-telemetry/k8s.gcr.io/kube-state-metrics/kube-state-metrics
+  # tolerations:
+  #   - key: "sku"
+  #     operator: "Equal"
+  #     value: "metricssvc"
+  #     effect: "NoSchedule"
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: agentpool
+            operator: In
+            values:
+            - generalpool    
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+              - kube-state-metrics
+          topologyKey: topology.kubernetes.io/zone    
+
+## Configuration for prometheus-node-exporter subchart
+##
+prometheus-node-exporter:
+  image:
+    repository: itacr001.azurecr.io/alpha-telemetry/quay.io/prometheus/node-exporter  
+
+## Manages Prometheus and Alertmanager components
+##
+prometheusOperator:
+  admissionWebhooks:
+    patch:
+      enabled: true
+      image:
+        repository: itacr001.azurecr.io/alpha-telemetry/k8s.gcr.io/ingress-nginx/kube-webhook-certgen
+        tag: v1.0
+        sha: "a0f92f5f828e9bf8e3a4c672080067e0079e95f9af8583059eab0c11f4dc7cfe"
+        pullPolicy: IfNotPresent
+
+  logFormat: json
+
+  # tolerations: 
+  #   - key: "sku"
+  #     operator: "Equal"
+  #     value: "metricssvc"
+  #     effect: "NoSchedule" 
+
+  # ## Assign custom affinity rules to the prometheus operator
+  # ## ref: https://kubernetes.io/docs/concepts/configuration/assign-pod-node/
+  # ##
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - preference:
+          matchExpressions:
+          - key: agentpool
+            operator: In
+            values:
+            - generalpool
+        weight: 100
+
+  ## Prometheus-operator image
+  ##
+  image:
+    repository: itacr001.azurecr.io/alpha-telemetry/quay.io/prometheus-operator/prometheus-operator
+    tag: v0.52.0
+    sha: ""
+    pullPolicy: IfNotPresent
+
+  prometheusConfigReloaderImage:
+    repository: itacr001.azurecr.io/alpha-telemetry/quay.io/prometheus-operator/prometheus-config-reloader
+    tag: v0.52.0
+    sha: ""
+prometheus:
+  ## Configuration for Prometheus service
+  ##
+  service:
+    annotations:
+      service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+      service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "dev-lb-sn-001"
+    loadBalancerIP: "10.135.5.250"
+    type: LoadBalancer
+    sessionAffinity: ClientIP
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+    maxUnavailable: ""
+
+  prometheusSpec:
+    enableAdminAPI: true
+    image:
+      repository: itacr001.azurecr.io/alpha-telemetry/quay.io/prometheus/prometheus
+      tag: v2.28.1
+      sha: ""
+
+    # tolerations:
+    #   - key: "sku"
+    #     operator: "Equal"
+    #     value: "metricssvc"
+    #     effect: "NoSchedule" 
+
+    ## Alertmanagers to which alerts will be sent
+    ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/master/Documentation/api.md#alertmanagerendpoints
+    ##
+    ## Default configuration will connect to the alertmanager deployed as part of this release
+    ##
+    alertingEndpoints: []
+    # - name: ""
+    #   namespace: ""
+    #   port: http
+    #   scheme: http
+    #   pathPrefix: ""
+    #   tlsConfig: {}
+    #   bearerTokenFile: ""
+    #   apiVersion: v2
+
+    ## External labels to add to any time series or alerts when communicating with external systems
+    ##
+    externalLabels:
+      cluster: dev-spoke1
+      region: east-us-1
+    ruleSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    retention: 7d
+    walCompression: true
+    replicas: 3
+    logFormat: json
+
+    ## Prefix used to register routes, overriding externalUrl route.
+    ## Useful for proxies that rewrite URLs.
+    ##
+    routePrefix: /
+
+    ## Standard object's metadata. More info: https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#metadata
+    ## Metadata Labels and Annotations gets propagated to the prometheus pods.
+    ##
+    podMetadata:
+      labels:
+        app: prometheus-dev
+        k8s-app: prometheus-dev
+
+    ## Pod anti-affinity can prevent the scheduler from placing Prometheus replicas on the same node.
+    ## The default value "soft" means that the scheduler should *prefer* to not schedule two replica pods onto the same node but no guarantee is provided.
+    ## The value "hard" means that the scheduler is *required* to not schedule two replica pods onto the same node.
+    ## The value "" will disable pod anti-affinity so that no anti-affinity rules will be configured.
+    podAntiAffinity: "hard"
+
+    ## If anti-affinity is enabled sets the topologyKey to use for anti-affinity.
+    ## This can be changed to, for example, failure-domain.beta.kubernetes.io/zone
+    ##
+    podAntiAffinityTopologyKey: topology.kubernetes.io/zone
+
+    ## Assign custom affinity rules to the prometheus instance
+    ## ref: https://kubernetes.io/docs/concepts/configuration/assign-pod-node/
+    ##
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - preference:
+            matchExpressions:
+            - key: agentpool
+              operator: In
+              values:
+              - generalpool
+          weight: 100
+
+    storageSpec:
+    # Using PersistentVolumeClaim
+    #
+      volumeClaimTemplate:
+        spec:
+          storageClassName: obs-sc
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
