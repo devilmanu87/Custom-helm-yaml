@@ -1,0 +1,173 @@
+<<<<<<< HEAD
+apiVersion: v1
+kind: Service
+metadata:
+  name: agrid-confluent-prometheus
+  labels:
+    app: agrid-confluent-prometheus
+spec:
+  selector:
+    clusterId: alpha-cp-hub
+  ports:
+  - name: prometheus
+    port: 7778
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agrid-operator-prometheus
+  labels:
+    app: agrid-operator-prometheus
+spec:
+  selector:
+    app: cc-operator
+  ports:
+  - name: prometheus
+    port: 7777
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: agrid-confluent-monitor
+  labels:
+    app: agrid-confluent-monitor
+spec:
+  selector:
+    matchLabels:
+      app: agrid-confluent-prometheus
+  endpoints:
+  - port: prometheus
+    relabelings:
+    - separator: ;
+      regex: __meta_kubernetes_pod_label_(.+)
+      replacement: $1
+      action: labelmap
+    - sourceLabels: [__meta_kubernetes_namespace]
+      separator: ;
+      regex: (.*)
+      targetLabel: kubernetes_namespace
+      replacement: $1
+      action: replace
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      separator: ;
+      regex: (.*)
+      targetLabel: kubernetes_pod_name
+      replacement: $1
+      action: replace 
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: agrid-operator-monitor
+  labels:
+    app: agrid-operator-monitor
+spec:
+  selector:
+    matchLabels:
+      app: agrid-operator-prometheus
+  endpoints:
+  - port: prometheus
+    relabelings:
+    - separator: ;
+      regex: __meta_kubernetes_pod_label_(.+)
+      replacement: $1
+      action: labelmap
+    - sourceLabels: [__meta_kubernetes_namespace]
+      separator: ;
+      regex: (.*)
+      targetLabel: kubernetes_namespace
+      replacement: $1
+      action: replace
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      separator: ;
+      regex: (.*)
+      targetLabel: kubernetes_pod_name
+      replacement: $1
+      action: replace 
+=======
+apiVersion: v1
+kind: Service
+metadata:
+  name: agrid-confluent-prometheus
+  labels:
+    app: agrid-confluent-prometheus
+spec:
+  selector:
+    clusterId: alpha-cp-hub
+  ports:
+  - name: prometheus
+    port: 7778
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agrid-operator-prometheus
+  labels:
+    app: agrid-operator-prometheus
+spec:
+  selector:
+    app: cc-operator
+  ports:
+  - name: prometheus
+    port: 7777
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: agrid-confluent-monitor
+  labels:
+    app: agrid-confluent-monitor
+spec:
+  selector:
+    matchLabels:
+      app: agrid-confluent-prometheus
+  endpoints:
+  - port: prometheus
+    relabelings:
+    - separator: ;
+      regex: __meta_kubernetes_pod_label_(.+)
+      replacement: $1
+      action: labelmap
+    - sourceLabels: [__meta_kubernetes_namespace]
+      separator: ;
+      regex: (.*)
+      targetLabel: kubernetes_namespace
+      replacement: $1
+      action: replace
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      separator: ;
+      regex: (.*)
+      targetLabel: kubernetes_pod_name
+      replacement: $1
+      action: replace 
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: agrid-operator-monitor
+  labels:
+    app: agrid-operator-monitor
+spec:
+  selector:
+    matchLabels:
+      app: agrid-operator-prometheus
+  endpoints:
+  - port: prometheus
+    relabelings:
+    - separator: ;
+      regex: __meta_kubernetes_pod_label_(.+)
+      replacement: $1
+      action: labelmap
+    - sourceLabels: [__meta_kubernetes_namespace]
+      separator: ;
+      regex: (.*)
+      targetLabel: kubernetes_namespace
+      replacement: $1
+      action: replace
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      separator: ;
+      regex: (.*)
+      targetLabel: kubernetes_pod_name
+      replacement: $1
+      action: replace 
+>>>>>>> 91cd1de4d439e3d98f8f83e4ba904577b5cd97c8
