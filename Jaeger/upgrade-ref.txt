@@ -1,0 +1,12 @@
+Docker Images:
+https://www.jaegertracing.io/download/#docker-images
+https://hub.docker.com/r/jaegertracing/jaeger-agent/tags
+
+Helm Chart:
+https://jaegertracing.github.io/helm-charts/
+
+Chart Documentation:
+https://github.com/jaegertracing/helm-charts/tree/jaeger-0.52.0/charts/jaeger
+
+Ref. Chart Deployment instruction:
+https://confluence-az.crd.com:8443/display/ACN/Spoke+Cluster+-+Platform+Core+Components+Runbook#SpokeClusterPlatformCoreComponentsRunbook-InstallJaegerAppTracingChart
