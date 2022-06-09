@@ -1,0 +1,90 @@
+# apiVersion: monitoring.coreos.com/v1
+# kind: PodMonitor
+# metadata:
+#   name: kafka-resource-metrics
+#   labels:
+#     app: confluent
+# spec:
+#   selector:
+#     matchExpressions:
+#       - key: "physicalstatefulcluster.core.confluent.cloud/name"
+#         operator: In
+#         values: ["kafka", "connectors", "ksql", "controlcenter", "replicator", "zookeeper", "schemaregistry"]
+#     # matchLabels:
+#     #   clusterId: alpha-cp-hub
+#   namespaceSelector:
+#     matchNames:
+#       - alpha-cp-hub
+#   podMetricsEndpoints:
+#   - path: /metrics
+#     targetPort: 7778
+#     relabelings:
+#     - separator: ;
+#       regex: __meta_kubernetes_pod_label_(.+)
+#       replacement: $1
+#       action: labelmap
+#     - source_labels: [__meta_kubernetes_namespace]
+#       separator: ;
+#       regex: (.*)
+#       target_label: kubernetes_namespace
+#       replacement: $1
+#       action: replace
+#     - source_labels: [__meta_kubernetes_pod_name]
+#       separator: ;
+#       regex: (.*)
+#       target_label: kubernetes_pod_name
+#       replacement: $1
+#       action: replace
+# ---
+# apiVersion: monitoring.coreos.com/v1
+# kind: PodMonitor
+# metadata:
+#   name: cluster-operator-metrics
+#   labels:
+#     app: confluent
+# spec:
+#   selector:
+#     matchLabels:
+#       app: cc-operator
+#   # namespaceSelector:
+#   #   matchNames:
+#   #     - alpha-cp-hub
+#   podMetricsEndpoints:
+  - path: /metrics
+    port: jolokia
+  - path: /metrics
+  #   targetPort: 7778
+    relabelings:
+    - separator: ;
+      regex: __meta_kubernetes_pod_label_(.+)
+      replacement: $1
+      action: labelmap
+    - sourceLabels: [__meta_kubernetes_namespace]
+      separator: ;
+      regex: (.*)
+      targetLabel: kubernetes_namespace
+      replacement: $1
+      action: replace
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      separator: ;
+      regex: (.*)
+      targetLabel: kubernetes_pod_name
+      replacement: $1
+      action: replace  
+# ---
+# apiVersion: monitoring.coreos.com/v1
+# kind: PodMonitor
+# metadata:
+#   name: cluster-operator-metrics
+#   labels:
+#     app: confluent
+# spec:
+#   selector:
+#     matchLabels:
+#       app: cc-operator
+#   namespaceSelector:
+#     matchNames:
+#       - alpha-cp-hub
+#   podMetricsEndpoints:
+#   - path: /metrics
+#     targetPort: 7778
