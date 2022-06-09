@@ -1,0 +1,128 @@
+# Custom values yaml file containing environment specific values and product specific custom configs
+elasticsearch:
+  enabled: false
+  image: "agrid01d1utilityacr001.azurecr.io/obs-logging/docker.elastic.co/elasticsearch/elasticsearch"
+  imageTag: "7.12.1"
+  replicas: 6
+  minimumMasterNodes: 3
+  esJavaOpts: "-Xmx30g -Xms30g"
+  resources:
+    requests:
+      cpu: "12"
+      memory: "50Gi"
+    limits:
+      cpu: "12"
+      memory: "55Gi"
+  volumeClaimTemplate: 
+    accessModes: [ "ReadWriteOnce" ]
+    storageClassName: "obs-xl-sc"
+    resources:
+      requests:
+        storage: 8Ti
+  podSecurityPolicy:
+    create: true
+    name: ""
+    spec:
+      privileged: true
+      fsGroup:
+        rule: RunAsAny
+      runAsUser:
+        rule: RunAsAny
+      seLinux:
+        rule: RunAsAny
+      supplementalGroups:
+        rule: RunAsAny
+      volumes:
+        - secret
+        - configMap
+        - persistentVolumeClaim
+        - emptyDir
+  rbac:
+    create: true
+    serviceAccountAnnotations: {}
+    serviceAccountName: ""
+  ingress:
+    enabled: true
+    annotations:
+      kubernetes.io/ingress.class: obs-nginx-ingress
+      nginx.ingress.kubernetes.io/rewrite-target: /$2
+      nginx.ingress.kubernetes.io/auth-url: "https://$host/oauth2/auth"
+      nginx.ingress.kubernetes.io/auth-signin: "https://$host/oauth2/start?rd=$escaped_request_uri"
+    hosts:
+      - host: agrid-d1-obs.ops.crd.com
+        paths:
+          - path: /elasticsearch(/|$)(.*)
+  esConfig:
+    elasticsearch.yml: |
+      http.max_content_length: 2000mb
+
+  tolerations:
+    - key: "sku"
+      operator: "Equal"
+      value: "elastic"
+      effect: "NoSchedule"    
+
+  lifecycle:
+    preStop:
+      exec:
+        command: ["/bin/sh", "-c", "echo Hello from the postStart handler > /usr/share/message"]
+    postStart:
+      exec:
+        command:
+          - bash
+          - -c
+          - |
+            #!/bin/bash
+            # Add a template to adjust number of shards/replicas
+            TEMPLATE_NAME=agrid_logstash_template
+            INDEX_PATTERN=\"logstash-*\"
+            SHARD_COUNT=3
+            REPLICA_COUNT=1
+            ES_URL=http://localhost:9200
+            while [[ "$(curl -s -o /dev/null -w '%{http_code}\n' $ES_URL)" != "200" ]]; do sleep 1; done
+            curl -XPUT "$ES_URL/_ilm/policy/agrid_ilm_policy" -H 'Content-Type: application/json' -d'{"policy": {  "phases": { "hot": {"min_age": "0ms","actions": {} }, "delete": {"min_age": "14d","actions": {  "delete": { "delete_searchable_snapshot": true  }} }  }} }'
+            curl -XPUT "$ES_URL/_index_template/$TEMPLATE_NAME" -H 'Content-Type: application/json' -d'{"index_patterns":['"$INDEX_PATTERN"'],"template": {  "settings":{ "number_of_shards": '$SHARD_COUNT', "number_of_replicas": '$REPLICA_COUNT', "index": {  "lifecycle": { "name": "agrid_ilm_policy"  },  "codec": "best_compression",  "query": { "default_field": ["log" ]  } }  }} }'
+
+kibana:
+  enabled: false  
+  image: "agrid01d1utilityacr001.azurecr.io/obs-logging/docker.elastic.co/kibana/kibana"
+  imageTag: "7.12.1"
+  replicas: 3
+  kibanaConfig:
+    kibana.yml: |
+      server.basePath: "/kibana"
+      server.rewriteBasePath: true
+      xpack.reporting.encryptionKey: "b9stuFOgoj0tetroqi110lcunlclchewIxaswumE"
+      xpack.reporting.csv.maxSizeBytes: 20971520
+  healthCheckPath: "/kibana/app/kibana"
+  ingress:
+    enabled: true
+    annotations: 
+      kubernetes.io/ingress.class: obs-nginx-ingress
+      nginx.ingress.kubernetes.io/auth-url: "https://$host/oauth2/auth"
+      nginx.ingress.kubernetes.io/auth-signin: "https://$host/oauth2/start?rd=$escaped_request_uri"
+    hosts:
+      - host: agrid-d1-obs.ops.crd.com
+        paths:
+          - path: /kibana/
+  tolerations:
+    - key: "sku"
+      operator: "Equal"
+      value: "general"
+      effect: "NoSchedule"
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - preference:
+          matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - general
+        weight: 100
+
+fluentd:
+  enabled: false  
+  
+fluent-bit:
+  enabled: false
