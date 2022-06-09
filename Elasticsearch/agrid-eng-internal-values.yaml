@@ -1,0 +1,189 @@
+
+# Custom values yaml file containing environment specific values and product specific custom configs
+elasticsearch:
+  enabled: false
+  image: "cpeobsacr.azurecr.io/alpha-logging/docker.elastic.co/elasticsearch/elasticsearch"
+  imageTag: "7.12.1"
+  replicas: 6
+  minimumMasterNodes: 3
+  esJavaOpts: "-Xmx4g -Xms4g"
+  resources:
+    requests:
+      cpu: "4000m"
+      memory: "8Gi"
+    limits:
+      cpu: "4000m"
+      memory: "8Gi"
+  volumeClaimTemplate:
+    accessModes: [ "ReadWriteOnce" ]
+    resources:
+      requests:
+        storage: 500Gi
+  podSecurityPolicy:
+    create: true
+    name: ""
+    spec:
+      privileged: true
+      fsGroup:
+        rule: RunAsAny
+      runAsUser:
+        rule: RunAsAny
+      seLinux:
+        rule: RunAsAny
+      supplementalGroups:
+        rule: RunAsAny
+      volumes:
+        - secret
+        - configMap
+        - persistentVolumeClaim
+        - emptyDir
+  rbac:
+    create: true
+    serviceAccountAnnotations: {}
+    serviceAccountName: ""
+  ingress:
+    enabled: false
+    annotations:
+      kubernetes.io/ingress.class: obs-nginx-ingress
+      nginx.ingress.kubernetes.io/rewrite-target: /$2
+      nginx.ingress.kubernetes.io/auth-url: "https://$host/oauth2/auth"
+      nginx.ingress.kubernetes.io/auth-signin: "https://$host/oauth2/start?rd=$escaped_request_uri"
+    hosts:
+      - host: agrid-dev-obs.crd.com
+        paths:
+          - path: /elasticsearch(/|$)(.*)
+  esConfig:
+    elasticsearch.yml: |
+      http.max_content_length: 500mb
+
+  lifecycle:
+    preStop:
+      exec:
+        command: ["/bin/sh", "-c", "echo Hello from the postStart handler > /usr/share/message"]
+    postStart:
+      exec:
+        command:
+          - bash
+          - -c
+          - |
+            #!/bin/bash
+            # Add a template to adjust number of shards/replicas
+            TEMPLATE_NAME=agrid_logstash_template
+            INDEX_PATTERN=\"logstash-alpha-*\",\"logstash-git-verify-*\",\"logstash-alpha-util-datapipe-services-*\",\"logstash-alpha-tenant-*\",\"logstash-alpha-cp-hub-*\"
+            SHARD_COUNT=6
+            REPLICA_COUNT=1
+            ES_URL=http://localhost:9200
+            while [[ "$(curl -s -o /dev/null -w '%{http_code}\n' $ES_URL)" != "200" ]]; do sleep 1; done
+            curl -XPUT "$ES_URL/_template/$TEMPLATE_NAME" -H 'Content-Type: application/json' -d'{"index_patterns":['"$INDEX_PATTERN"'],"settings":{"number_of_shards":'$SHARD_COUNT',"number_of_replicas":'$REPLICA_COUNT'}}'
+            curl -XPOST "$ES_URL/_template/default" -H 'Content-Type: application/json' -d '{"index_patterns":["*"],"order": -1,"settings": {"index": {"number_of_shards": 3}}'
+
+kibana:
+  enabled: false  
+  image: "cpeobsacr.azurecr.io/alpha-logging/docker.elastic.co/kibana/kibana"
+  imageTag: "7.12.1"
+  replicas: 3
+  kibanaConfig:
+    kibana.yml: |
+      server.basePath: "/kibana"
+      server.rewriteBasePath: true
+  healthCheckPath: "/kibana/app/kibana"
+  ingress:
+    enabled: false
+    annotations: 
+      kubernetes.io/ingress.class: obs-nginx-ingress
+    hosts:
+      - host: obs-monitoring-az.crd.com
+        paths:
+          - path: /kibana/
+
+fluentd:
+  enabled: false  
+  image:
+    repository: "cpeobsacr.azurecr.io/alpha-logging/fluent/fluentd-kubernetes-daemonset"
+    tag: "v1.12.3-debian-elasticsearch7-1.0"
+  fileConfigs:
+    04_outputs.conf: |-
+      <label @OUTPUT>
+        <match **>
+          @type elasticsearch_dynamic
+          logstash_format true
+          suppress_type_name true
+          logstash_prefix logstash-${record['kubernetes']['namespace_name']}
+          host "elasticsearch-master"
+          port 9200
+          path ""
+          user elastic
+          password changeme
+          <buffer>
+            @type file
+            path /var/log/fluentd-buffers/kubernetes.system.buffer
+            flush_mode interval
+            retry_type exponential_backoff
+            flush_thread_count 8
+            flush_interval 5s
+            retry_forever true
+            queued_chunks_limit_size 8
+            # compress gzip
+            retry_max_interval 30
+            overflow_action throw_exception
+            retry_timeout 72h
+          </buffer>           
+        </match>
+      </label>
+  metrics:
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        release: prometheus-operator
+      namespace: ""
+      namespaceSelector: {}
+      ## metric relabel configs to apply to samples before ingestion.
+      ##
+      metricRelabelings: []
+      # - sourceLabels: [__name__]
+      #   separator: ;
+      #   regex: ^fluentd_output_status_buffer_(oldest|newest)_.+
+      #   replacement: $1
+      #   action: drop
+      ## relabel configs to apply to samples after ingestion.
+      ##
+      relabelings: []
+      # - sourceLabels: [__meta_kubernetes_pod_node_name]
+      #   separator: ;
+      #   regex: ^(.*)$
+      #   targetLabel: nodename
+      #   replacement: $1
+      #   action: replace
+      ## Additional serviceMonitor config
+      ##
+      jobLabel: fluentd
+      scrapeInterval: 30s
+      scrapeTimeout: 5s
+      honorLabels: true
+
+    prometheusRule:
+      enabled: true
+      additionalLabels: {}
+      namespace: ""
+      rules:
+      - alert: FluentdDown
+        expr: up{job="fluentd"} == 0
+        for: 5m
+        labels:
+          context: fluentd
+          severity: warning
+        annotations:
+          summary: "Fluentd Down"
+          description: "{{ $labels.pod }} on {{ $labels.nodename }} is down"
+      - alert: FluentdScrapeMissing
+        expr: absent(up{job="fluentd"} == 1)
+        for: 15m
+        labels:
+          context: fluentd
+          severity: warning
+        annotations:
+          summary: "Fluentd Scrape Missing"
+          description: "Fluentd instance has disappeared from Prometheus target discovery"
+
+fluent-bit:
+  enabled: false
