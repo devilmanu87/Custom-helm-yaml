@@ -1,0 +1,210 @@
+global:
+  imageRegistry: cpedracr.azurecr.io
+image:
+  registry: cpedracr.azurecr.io
+  repository: obs-logging/bitnami/fluentd
+  tag: 1.14.4-debian-10-r11
+metrics:
+  ## @param metrics.enabled Enable the export of Prometheus metrics
+  ##
+  enabled: false
+  serviceMonitor:
+    ## @param metrics.serviceMonitor.enabled if `true`, creates a Prometheus Operator ServiceMonitor (also requires `metrics.enabled` to be `true`)
+    ##
+    enabled: true
+    namespace: obs-logging
+forwarder:
+  enabled: true
+  persistence:
+    enabled: true
+  extraEnv:
+    - name: K8S_CLUSTER_NAME
+      value: unknowncluster  
+    - name: K8S_NODE_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: spec.nodeName
+  configMapFiles:
+    fluentd.conf: |
+      # Ignore fluentd own events
+      <match fluent.**>
+        @type null
+      </match>
+
+      @include fluentd-inputs.conf
+      @include fluentd-output.conf      
+      {{- if .Values.metrics.enabled }}
+      @include metrics.conf
+      {{- end }}    
+    fluentd-inputs.conf: |
+      # HTTP input for the liveness and readiness probes
+      <source>
+        @type http
+        port 9880
+      </source>
+      # Get the logs from the containers running in the node
+      <source>
+        @type tail
+        path /var/log/containers/*.log
+        # exclude Fluentd logs
+        exclude_path /var/log/containers/*fluentd*.log
+        pos_file /opt/bitnami/fluentd/logs/buffers/fluentd-docker.pos
+        tag kubernetes.*
+        read_from_head false
+        <parse>
+          @type multi_format
+          <pattern>
+            format json
+            time_key time
+            time_type string
+            time_format "%Y-%m-%dT%H:%M:%S.%NZ"
+            keep_time_key false
+          </pattern>
+          <pattern>
+            format regexp
+            expression /^(?<time>.+) (?<stream>stdout|stderr)( (.))? (?<log>.*)$/
+            time_format %Y-%m-%dT%H:%M:%S.%NZ
+            keep_time_key false
+          </pattern>
+        </parse>
+        emit_unmatched_lines true
+      </source>
+      # enrich with kubernetes metadata
+      <filter kubernetes.**>
+        @type kubernetes_metadata
+      </filter>
+      <filter **>
+        @type record_transformer
+        <record>
+          kubernetes_cluster_name "#{ENV['K8S_CLUSTER_NAME']}"
+        </record>
+      </filter>
+      <filter kubernetes.var.log.containers.**>
+        @type parser
+        <parse>
+          @type json
+          json_parser json
+        </parse>
+        replace_invalid_sequence true
+        emit_invalid_record_to_error false
+        key_name log
+        reserve_data true
+      </filter>
+    metrics.conf: |
+      # Prometheus Exporter Plugin
+      # input plugin that exports metrics
+      <source>
+        @type prometheus
+        port {{ .Values.metrics.service.port }}
+      </source>
+      # input plugin that collects metrics from MonitorAgent
+      <source>
+        @type prometheus_monitor
+        <labels>
+          host ${hostname}
+        </labels>
+      </source>
+      # input plugin that collects metrics for output plugin
+      <source>
+        @type prometheus_output_monitor
+        <labels>
+          host ${hostname}
+        </labels>
+      </source>
+      # input plugin that collects metrics for in_tail plugin
+      <source>
+        @type prometheus_tail_monitor
+        <labels>
+          host ${hostname}
+        </labels>
+      </source>     
+aggregator:
+  enabled: true
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 6
+  persistence:
+    storageClass: obs-sc
+    enabled: true
+    size: 120Gi
+    ## @param aggregator.extraEnv Extra environment variables to pass to the container
+  extraEnv:
+    - name: K8S_NODE_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: spec.nodeName
+  serviceAccount:
+    # create: true        
+    name: obs-bitnami-fluentd-forwarder
+  configMapFiles:
+    fluentd.conf: |
+      # Ignore fluentd own events
+      <match fluent.**>
+        @type null
+      </match>
+
+      @include fluentd-inputs.conf
+      @include fluentd-output.conf
+      {{- if .Values.metrics.enabled }}
+      @include metrics.conf
+      {{- end }}    
+    fluentd-output.conf: |
+      <match **>
+        @type elasticsearch_dynamic
+        logstash_format true
+        suppress_type_name true
+        logstash_prefix logstash-${record['kubernetes_cluster_name']}-${record['kubernetes']['namespace_name']}
+        host "elasticsearch-master"
+        port 9200
+        user elastic
+        password changeme
+
+        request_timeout 2147483648
+        reload_connections false
+        reload_on_failure true
+        reconnect_on_error true
+
+        <buffer>
+          @type file
+          path /opt/bitnami/fluentd/logs/buffers/external.logs.buffer
+          chunk_limit_size 128MB
+          overflow_action block
+          queued_chunks_limit_size 8
+          retry_max_interval 30
+          retry_type periodic
+          retry_wait 60s
+          flush_thread_count 8
+          flush_interval 20s
+          retry_forever false
+        </buffer> 
+      </match>
+    metrics.conf: |
+      # Prometheus Exporter Plugin
+      # input plugin that exports metrics
+      <source>
+        @type prometheus
+        port {{ .Values.metrics.service.port }}
+      </source>
+
+      # input plugin that collects metrics from MonitorAgent
+      <source>
+        @type prometheus_monitor
+        <labels>
+          host ${hostname}
+        </labels>
+      </source>
+
+      # input plugin that collects metrics for output plugin
+      <source>
+        @type prometheus_output_monitor
+        <labels>
+          host ${hostname}
+        </labels>
+      </source>
+  service:
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+      service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "cpe-sr-snet-001"
+    loadBalancerIP: 10.135.88.190
